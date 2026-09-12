@@ -18,7 +18,7 @@ npm run build
 npm audit --omit=dev
 ```
 
-正式交付仍需在装有 Docker 的 Linux `amd64` 主机完成镜像构建和启动验收。
+仓库的 `.github/workflows/ci.yml` 会在 Linux `amd64` 环境执行以上检查并实际构建 Docker 镜像。生产发布时使用同一 Dockerfile，以待发布 commit SHA 再构建一次镜像。
 
 ## 配置
 
