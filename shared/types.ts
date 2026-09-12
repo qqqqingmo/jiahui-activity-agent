@@ -172,6 +172,8 @@ export interface GeneratePlanResponse {
   meta: {
     mode: "model" | "rules";
     message: string;
+    reviewRequested?: boolean;
+    reviewCompleted?: boolean;
   };
 }
 
@@ -201,4 +203,23 @@ export interface HistoryImportResponse {
   case: KnowledgeCase;
   parsedFiles: string[];
   skippedFiles: string[];
+}
+
+export type ServiceJobOperation = "generate-plan" | "refine-plan" | "import-history";
+export type ServiceJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
+
+export interface ServiceJob<T = unknown> {
+  id: string;
+  operation: ServiceJobOperation;
+  status: ServiceJobStatus;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string;
+  result?: T;
+  error?: {
+    code: string;
+    message: string;
+    retryable: boolean;
+    requestId: string;
+  };
 }

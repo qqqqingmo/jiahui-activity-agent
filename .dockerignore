@@ -1,0 +1,15 @@
+.git
+.github
+.env
+.env.*
+!.env.example
+node_modules
+dist
+dist-server
+.runtime
+coverage
+*.log
+.DS_Store
+docs
+过往活动相关文件
+论文修改原则.md

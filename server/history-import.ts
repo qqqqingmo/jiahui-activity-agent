@@ -8,6 +8,29 @@ export interface ParsedHistoryFile {
 }
 
 const plainTextExtensions = new Set([".txt", ".md", ".markdown", ".csv", ".tsv", ".json"]);
+const maxZipEntries = 2_000;
+const maxUncompressedEntry = 40 * 1024 * 1024;
+const maxUncompressedTotal = 80 * 1024 * 1024;
+
+function validateZipContainer(buffer: Buffer) {
+  const signature = Buffer.from([0x50, 0x4b, 0x01, 0x02]);
+  let offset = 0;
+  let entries = 0;
+  let total = 0;
+  while ((offset = buffer.indexOf(signature, offset)) >= 0) {
+    if (offset + 46 > buffer.length) throw new Error("压缩文件目录不完整");
+    const size = buffer.readUInt32LE(offset + 24);
+    if (size === 0xffffffff || size > maxUncompressedEntry) throw new Error("压缩文件展开后过大");
+    entries += 1;
+    total += size;
+    if (entries > maxZipEntries || total > maxUncompressedTotal) throw new Error("压缩文件展开后过大");
+    const nameLength = buffer.readUInt16LE(offset + 28);
+    const extraLength = buffer.readUInt16LE(offset + 30);
+    const commentLength = buffer.readUInt16LE(offset + 32);
+    offset += 46 + nameLength + extraLength + commentLength;
+  }
+  if (entries === 0) throw new Error("压缩文件格式无效");
+}
 
 function normalizeText(value: string) {
   return value
@@ -61,16 +84,19 @@ export async function parseHistoryFiles(files: Express.Multer.File[]) {
 
   for (const file of files) {
     const decodedName = Buffer.from(file.originalname, "latin1").toString("utf8");
-    const name = decodedName.includes("�") ? file.originalname : decodedName;
+    const alreadyUnicode = Array.from(file.originalname).some((character) => character.charCodeAt(0) > 255);
+    const name = alreadyUnicode || decodedName.includes("�") ? file.originalname : decodedName;
     const extension = path.extname(name).toLowerCase();
     try {
       let text = "";
       if (plainTextExtensions.has(extension)) {
         text = normalizeText(file.buffer.toString("utf8"));
       } else if (extension === ".docx") {
+        validateZipContainer(file.buffer);
         const result = await mammoth.extractRawText({ buffer: file.buffer });
         text = normalizeText(result.value);
       } else if (extension === ".xlsx") {
+        validateZipContainer(file.buffer);
         text = await extractSpreadsheet(file);
       } else {
         skipped.push(name);

@@ -1,0 +1,652 @@
+openapi: 3.1.0
+info:
+  title: 嘉会内部服务 API
+  version: 1.1.0
+  description: 嘉会活动方案生成、修订、历史资料解析和经费表服务。业务接口仅供通班官网服务端调用。
+servers:
+  - url: http://localhost:3001
+security:
+  - internalService: []
+paths:
+  /api/v1/health/live:
+    get:
+      summary: 存活检查
+      security: []
+      responses:
+        "200":
+          description: 进程正常
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+  /api/v1/health/ready:
+    get:
+      summary: 就绪检查
+      description: 检查内部认证、模型配置和任务目录，不调用外部模型。
+      security: []
+      responses:
+        "200":
+          description: 可接收请求
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Readiness"
+        "503":
+          description: 配置或任务目录尚未就绪
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Readiness"
+  /api/v1/knowledge:
+    get:
+      summary: 获取内置历史活动
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+        - $ref: "#/components/parameters/AppUserId"
+      responses:
+        "200":
+          description: 历史活动列表
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [cases]
+                properties:
+                  cases:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/KnowledgeCase"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/knowledge/import:
+    post:
+      summary: 从对象存储解析历史活动
+      description: 接收官网服务端生成的短期 R2 签名下载链接。长耗时场景建议提交 import-history 异步任务。
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+        - $ref: "#/components/parameters/AppUserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RemoteFileInput"
+      responses:
+        "200":
+          description: 已整理为历史活动案例
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HistoryImportResponse"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/plans/generate:
+    post:
+      summary: 生成活动方案
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+        - $ref: "#/components/parameters/AppUserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GeneratePlanRequest"
+      responses:
+        "200":
+          description: 结构化方案
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeneratePlanResponse"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/plans/refine:
+    post:
+      summary: 根据反馈修订方案
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+        - $ref: "#/components/parameters/AppUserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [plan, instruction]
+              properties:
+                plan:
+                  $ref: "#/components/schemas/ActivityPlan"
+                instruction:
+                  type: string
+                  minLength: 2
+                  maxLength: 500
+      responses:
+        "200":
+          description: 修订后的结构化方案
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeneratePlanResponse"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/forms/expense/blank:
+    get:
+      summary: 下载空白经费表
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+        - $ref: "#/components/parameters/AppUserId"
+      responses:
+        "200":
+          description: Word 文件
+          content:
+            application/vnd.openxmlformats-officedocument.wordprocessingml.document:
+              schema:
+                type: string
+                contentEncoding: binary
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/forms/expense/prefilled:
+    post:
+      summary: 生成预填写经费表
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+        - $ref: "#/components/parameters/AppUserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [plan]
+              properties:
+                plan:
+                  $ref: "#/components/schemas/ActivityPlan"
+      responses:
+        "200":
+          description: Word 文件
+          content:
+            application/vnd.openxmlformats-officedocument.wordprocessingml.document:
+              schema:
+                type: string
+                contentEncoding: binary
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/jobs:
+    post:
+      summary: 提交异步任务
+      description: 支持 generate-plan、refine-plan 和 import-history。返回 202 后轮询任务地址。
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+        - $ref: "#/components/parameters/AppUserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  required: [operation, input]
+                  properties:
+                    operation:
+                      const: generate-plan
+                    input:
+                      $ref: "#/components/schemas/GeneratePlanRequest"
+                - type: object
+                  required: [operation, input]
+                  properties:
+                    operation:
+                      const: refine-plan
+                    input:
+                      type: object
+                      required: [plan, instruction]
+                      properties:
+                        plan:
+                          $ref: "#/components/schemas/ActivityPlan"
+                        instruction:
+                          type: string
+                          minLength: 2
+                          maxLength: 500
+                - type: object
+                  required: [operation, input]
+                  properties:
+                    operation:
+                      const: import-history
+                    input:
+                      $ref: "#/components/schemas/RemoteFileInput"
+      responses:
+        "202":
+          description: 已进入任务队列
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/jobs/{jobId}:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - $ref: "#/components/parameters/RequestId"
+      - $ref: "#/components/parameters/AppUserId"
+    get:
+      summary: 查询异步任务
+      responses:
+        "200":
+          description: 任务状态；succeeded 时含 result，failed 时含 error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        default:
+          $ref: "#/components/responses/Error"
+    delete:
+      summary: 取消排队中或运行中的任务
+      responses:
+        "200":
+          description: 取消后的任务状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        default:
+          $ref: "#/components/responses/Error"
+components:
+  securitySchemes:
+    internalService:
+      type: http
+      scheme: bearer
+      description: 官网服务端与嘉会共享的内部服务令牌。浏览器不得持有。
+  parameters:
+    RequestId:
+      name: X-Request-ID
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+        pattern: "^[A-Za-z0-9._:-]+$"
+    AppUserId:
+      name: X-App-User-ID
+      in: header
+      required: true
+      description: 官网生成的应用范围用户 ID，不使用浏览器会话令牌。
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+        pattern: "^[A-Za-z0-9._:-]+$"
+  responses:
+    Error:
+      description: 请求失败
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error:
+                $ref: "#/components/schemas/Error"
+  schemas:
+    Health:
+      type: object
+      required: [ok, service, version, mode]
+      properties:
+        ok:
+          const: true
+        service:
+          const: jiahui
+        version:
+          type: string
+        mode:
+          enum: [standalone, integrated]
+    Readiness:
+      type: object
+      required: [ok, service, version, mode, checks]
+      properties:
+        ok:
+          type: boolean
+        service:
+          const: jiahui
+        version:
+          type: string
+        mode:
+          enum: [standalone, integrated]
+        checks:
+          type: object
+          required: [serviceAuth, model, jobStorage]
+          properties:
+            serviceAuth:
+              type: boolean
+            model:
+              type: boolean
+            jobStorage:
+              type: boolean
+    Error:
+      type: object
+      required: [code, message, retryable, requestId]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        retryable:
+          type: boolean
+        requestId:
+          type: string
+    ActivityBrief:
+      type: object
+      additionalProperties: false
+      required: [title, type, objective, date, startTime, endTime, attendees, budgetMin, budgetMax, location, venueType, teamMembers, mustHave, constraints]
+      properties:
+        title:
+          type: string
+          minLength: 2
+          maxLength: 80
+        type:
+          enum: [集体团建, 迎新见面, 学术交流, 晚会庆典, 比赛路演, 志愿实践, 其他]
+        objective:
+          type: string
+          minLength: 2
+          maxLength: 500
+        date:
+          type: string
+          format: date
+        startTime:
+          type: string
+          pattern: "^\\d{2}:\\d{2}$"
+        endTime:
+          type: string
+          pattern: "^\\d{2}:\\d{2}$"
+        attendees:
+          type: integer
+          minimum: 1
+          maximum: 5000
+        budgetMin:
+          type: number
+          minimum: 0
+        budgetMax:
+          type: number
+          minimum: 0
+        location:
+          type: string
+          maxLength: 120
+        venueType:
+          enum: [室内, 户外, 室内外结合, 待定]
+        teamMembers:
+          type: array
+          maxItems: 30
+          items:
+            type: string
+        mustHave:
+          type: string
+          maxLength: 500
+        constraints:
+          type: string
+          maxLength: 800
+    KnowledgeCase:
+      type: object
+      required: [id, title, year, activityType, scale, venueType, sourceFiles, tags, summary, evidence, reusableTips, pitfalls]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        year: { type: integer }
+        activityType: { type: string }
+        scale: { type: integer }
+        budget: { type: number }
+        venueType: { enum: [室内, 户外, 室内外结合, 待定] }
+        sourceFiles:
+          type: array
+          items: { type: string }
+        tags:
+          type: array
+          items: { type: string }
+        summary: { type: string }
+        details: { type: string }
+        evidence:
+          type: array
+          items: { type: string }
+        reusableTips:
+          type: array
+          items: { type: string }
+        pitfalls:
+          type: array
+          items: { type: string }
+        timeline:
+          type: array
+          items: { type: string }
+        outcomes:
+          type: array
+          items: { type: string }
+        imported: { type: boolean }
+    GeneratePlanRequest:
+      type: object
+      additionalProperties: false
+      required: [brief]
+      properties:
+        brief:
+          $ref: "#/components/schemas/ActivityBrief"
+        mode:
+          enum: [model, rules]
+          default: model
+        knowledgeCases:
+          type: array
+          maxItems: 30
+          items:
+            $ref: "#/components/schemas/KnowledgeCase"
+    GeneratePlanResponse:
+      type: object
+      required: [plan, meta]
+      properties:
+        plan:
+          $ref: "#/components/schemas/ActivityPlan"
+        meta:
+          type: object
+          required: [mode, message]
+          properties:
+            mode: { enum: [model, rules] }
+            message: { type: string }
+            reviewRequested: { type: boolean }
+            reviewCompleted: { type: boolean }
+    ActivityPlan:
+      type: object
+      required: [id, generatedBy, generatedAt, brief, theme, summary, goals, highlights, decisions, milestones, schedule, tasks, materials, budgetItems, notices, risks, references, planningIssues]
+      properties:
+        id: { type: string }
+        generatedBy: { enum: [model, rules] }
+        generatedAt: { type: string, format: date-time }
+        brief:
+          $ref: "#/components/schemas/ActivityBrief"
+        theme: { type: string }
+        summary: { type: string }
+        goals:
+          type: array
+          items: { type: string }
+        highlights:
+          type: array
+          items: { type: string }
+        decisions:
+          type: array
+          items:
+            type: object
+            required: [dimension, decision, reason]
+            properties:
+              dimension: { type: string }
+              decision: { type: string }
+              reason: { type: string }
+        milestones:
+          type: array
+          items:
+            $ref: "#/components/schemas/Milestone"
+        schedule:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScheduleItem"
+        tasks:
+          type: array
+          items:
+            $ref: "#/components/schemas/TaskItem"
+        materials:
+          type: array
+          items:
+            $ref: "#/components/schemas/MaterialItem"
+        budgetItems:
+          type: array
+          items:
+            type: object
+            required: [category, item, amount, note]
+            properties:
+              category: { type: string }
+              item: { type: string }
+              amount: { type: number }
+              note: { type: string }
+        notices:
+          type: object
+          required: [initial, reminder, onsite]
+          properties:
+            initial: { type: string }
+            reminder: { type: string }
+            onsite: { type: string }
+        risks:
+          type: array
+          items:
+            type: object
+            required: [id, level, item, trigger, response, owner]
+            properties:
+              id: { type: string }
+              level: { enum: [高, 中, 低] }
+              item: { type: string }
+              trigger: { type: string }
+              response: { type: string }
+              owner: { type: string }
+        references:
+          type: array
+          items:
+            type: object
+            required: [caseId, title, reason, evidence]
+            properties:
+              caseId: { type: string }
+              title: { type: string }
+              reason: { type: string }
+              evidence: { type: string }
+        planningIssues:
+          type: array
+          items: { type: string }
+        feedbackHistory:
+          type: array
+          items:
+            type: object
+            required: [id, instruction, createdAt]
+            properties:
+              id: { type: string }
+              instruction: { type: string }
+              createdAt: { type: string, format: date-time }
+    Milestone:
+      type: object
+      required: [id, date, label, owner, status]
+      properties:
+        id: { type: string }
+        date: { type: string }
+        label: { type: string }
+        owner: { type: string }
+        status: { enum: [待开始, 进行中, 已完成] }
+    ScheduleItem:
+      type: object
+      required: [id, time, duration, title, detail, owner, type]
+      properties:
+        id: { type: string }
+        time: { type: string }
+        duration: { type: string }
+        title: { type: string }
+        detail: { type: string }
+        owner: { type: string }
+        type: { enum: [集合, 活动, 转场, 用餐, 机动, 收尾] }
+    TaskItem:
+      type: object
+      required: [id, title, description, owner, deadline, priority, status]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        description: { type: string }
+        owner: { type: string }
+        deadline: { type: string }
+        priority: { enum: [高, 中, 低] }
+        status: { enum: [待开始, 进行中, 已完成] }
+        dependency: { type: string }
+        notes: { type: string }
+        feedback:
+          type: array
+          items:
+            type: object
+            required: [id, author, content, createdAt]
+            properties:
+              id: { type: string }
+              author: { type: string }
+              content: { type: string }
+              createdAt: { type: string, format: date-time }
+    MaterialItem:
+      type: object
+      required: [id, category, item, quantity, unit, estimate, owner, deadline, required]
+      properties:
+        id: { type: string }
+        category: { enum: [场地交通, 餐饮, 活动道具, 宣传物料, 安全保障, 奖品, 其他] }
+        item: { type: string }
+        quantity: { type: number }
+        unit: { type: string }
+        estimate: { type: number }
+        owner: { type: string }
+        deadline: { type: string }
+        required: { type: boolean }
+        checked: { type: boolean }
+    RemoteFileInput:
+      type: object
+      additionalProperties: false
+      required: [files]
+      properties:
+        files:
+          type: array
+          minItems: 1
+          maxItems: 30
+          items:
+            type: object
+            additionalProperties: false
+            required: [name, url]
+            properties:
+              name: { type: string, maxLength: 240 }
+              url: { type: string, format: uri, maxLength: 4096 }
+              contentType: { type: string, maxLength: 160 }
+              size: { type: integer, minimum: 0, maximum: 8388608 }
+    HistoryImportResponse:
+      type: object
+      required: [case, parsedFiles, skippedFiles]
+      properties:
+        case:
+          $ref: "#/components/schemas/KnowledgeCase"
+        parsedFiles:
+          type: array
+          items: { type: string }
+        skippedFiles:
+          type: array
+          items: { type: string }
+    Job:
+      type: object
+      required: [id, operation, status, createdAt, updatedAt, expiresAt]
+      properties:
+        id: { type: string, format: uuid }
+        operation: { enum: [generate-plan, refine-plan, import-history] }
+        status: { enum: [queued, running, succeeded, failed, cancelled] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        result: {}
+        error:
+          $ref: "#/components/schemas/Error"

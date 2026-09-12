@@ -5,9 +5,13 @@ dist-server/
 .DS_Store
 *.log
 coverage/
+.runtime/
 
-# 作品提交文案和录制提纲仅供本地使用
-docs/
+# 作品提交文案和录制提纲仅供本地使用；正式接入文档纳入仓库
+docs/*
+!docs/integration.md
+!docs/operations.md
+!docs/data-and-licenses.md
 
 # 历史活动原始资料体积较大且可能含内部信息，不纳入代码仓库
 过往活动相关文件/

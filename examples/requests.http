@@ -1,0 +1,46 @@
+@baseUrl = http://127.0.0.1:3001
+@serviceToken = replace-with-a-random-internal-token
+@requestId = example-request-001
+@appUserId = example-user-001
+
+### 存活检查
+GET {{baseUrl}}/api/v1/health/live
+
+### 就绪检查
+GET {{baseUrl}}/api/v1/health/ready
+
+### 提交方案生成任务
+POST {{baseUrl}}/api/v1/jobs
+Authorization: Bearer {{serviceToken}}
+X-Request-ID: {{requestId}}
+X-App-User-ID: {{appUserId}}
+Content-Type: application/json
+
+{
+  "operation": "generate-plan",
+  "input": {
+    "mode": "model",
+    "brief": {
+      "title": "秋季新老生交流会",
+      "type": "迎新见面",
+      "objective": "帮助新老同学认识彼此并交流学习经验",
+      "date": "2026-10-18",
+      "startTime": "11:30",
+      "endTime": "13:30",
+      "attendees": 30,
+      "budgetMin": 1000,
+      "budgetMax": 1800,
+      "location": "校内餐厅",
+      "venueType": "室内",
+      "teamMembers": [],
+      "mustHave": "共进午餐、自由交流、合影",
+      "constraints": "校内单点活动"
+    }
+  }
+}
+
+### 查询任务；将 job-id 替换为提交接口返回的 id
+GET {{baseUrl}}/api/v1/jobs/job-id
+Authorization: Bearer {{serviceToken}}
+X-Request-ID: example-request-002
+X-App-User-ID: {{appUserId}}

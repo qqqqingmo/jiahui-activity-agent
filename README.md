@@ -4,6 +4,8 @@
 
 活动方案以结构化方式呈现，负责人、状态、备注和反馈都可以继续修改；方案也支持按自然语言反馈整体调整或导出为 Markdown。
 
+当前官网接入版本为 `v1.1.0`，维护账号为 [@qqqqingmo](https://github.com/qqqqingmo)。
+
 ## 主要功能
 
 - 通用活动建模：综合目标、正式程度、参与方式、规模、地点移动、时长和不确定性形成活动画像。
@@ -53,7 +55,21 @@ npm run build
 npm start
 ```
 
-生产模式默认地址为 [http://127.0.0.1:3001](http://127.0.0.1:3001)。
+生产模式监听 `0.0.0.0:3001`，本机可通过 [http://127.0.0.1:3001](http://127.0.0.1:3001) 访问。
+
+### 官网接入模式
+
+官网接入使用 `integrated` 模式。模型配置由运维通过环境变量提供，业务接口需要内部服务令牌、请求 ID 和官网生成的应用用户 ID。浏览器不会直接调用嘉会服务。
+
+```bash
+JIAHUI_DEPLOYMENT_MODE=integrated \
+INTERNAL_SERVICE_TOKEN=replace_with_a_random_secret \
+AI_API_KEY=replace_with_model_key \
+R2_ALLOWED_HOSTS=example.r2.cloudflarestorage.com \
+npm start
+```
+
+接口契约见 [openapi.yaml](./openapi.yaml)，接入步骤见 [docs/integration.md](./docs/integration.md)，部署与回滚见 [docs/operations.md](./docs/operations.md)。
 
 ## 生成逻辑
 
@@ -89,10 +105,10 @@ npm start
 
 ## 数据保存
 
-- 活动方案、任务编辑、任务反馈、任务进度和物资勾选：浏览器 `localStorage`。
-- 用户导入的历史案例：浏览器 `localStorage`。
-- 从界面填写的 API 配置：仅当前后端进程内存；重启后重新读取 `.env`。
-- 当前版本通过成员视角模拟个人任务入口，尚未接入账号系统和多人实时同步。
+- 独立演示模式：活动方案、任务编辑、反馈、进度、物资状态和导入案例保存在当前浏览器。
+- 官网接入模式：官网数据库保存活动、方案版本、任务、反馈和成员权限；嘉会返回结构化生成结果。
+- 异步任务状态：嘉会在 `JOB_DATA_DIR` 中短期保存，默认保留 24 小时，进程重启后会恢复排队任务。
+- 模型凭据：从服务端环境变量读取，不进入浏览器、接口响应或请求日志。
 
 ## 项目结构
 
@@ -105,7 +121,10 @@ npm start
 │   ├── history-import.ts   # DOCX/XLSX/文本提取
 │   ├── knowledge.ts        # 内置历史活动与检索
 │   ├── model.ts            # 通用模型调用、提示词、复核与资料整理
-│   └── planner.ts          # 规则草案、意图判断和基础计算
+│   ├── planner.ts          # 规则草案、意图判断和基础计算
+│   ├── jobs.ts             # 可恢复的短期异步任务队列
+│   ├── remote-files.ts     # R2 签名链接下载与边界检查
+│   └── service.ts          # 生成、修订和资料整理服务层
 ├── shared/types.ts         # 前后端共享数据结构
 ├── src/
 │   ├── components/         # 简报、活动方案、历史活动和运行配置
@@ -113,10 +132,14 @@ npm start
 │   ├── demoData.ts
 │   └── styles.css
 ├── .env.example
+├── Dockerfile
+├── openapi.yaml
 └── package.json
 ```
 
 ## API
+
+独立演示界面继续使用以下本地接口：
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
@@ -131,6 +154,16 @@ npm start
 | `GET` | `/api/forms/expense/blank` | 下载空白经费表 |
 | `POST` | `/api/forms/expense/prefilled` | 按当前方案生成预填写经费表 |
 
+官网使用 `/api/v1` 版本化接口，包括方案生成与修订、R2 历史资料解析、经费表下载和异步任务。除健康检查外，请求必须携带：
+
+```http
+Authorization: Bearer <INTERNAL_SERVICE_TOKEN>
+X-Request-ID: <request-id>
+X-App-User-ID: <app-scoped-user-id>
+```
+
+模型生成、方案修订和资料解析可以提交到 `POST /api/v1/jobs`。任务状态包括 `queued`、`running`、`succeeded`、`failed` 和 `cancelled`。
+
 ## 测试
 
 ```bash
@@ -141,9 +174,4 @@ npm run build
 
 自动化测试覆盖预算范围、历史检索、人数/预算联动、通用活动画像、加权执行进度、来源材料下载、经费表生成和 HTTP API。轻量交流、正式大会、校外体育活动与午餐参访等不同场景都作为回归样例。
 
-## 后续接入方向
-
-- 对接账号和成员身份，将“我的任务”改为真实用户任务。
-- 用服务端数据库替换浏览器存储，实现多人同步、权限和操作记录。
-- 接入报名表、成员技能和日历，自动平衡分工并提醒截止时间。
-- 增加 PDF、旧版 Word 和 PPTX 的资料提取。
+生产依赖审计可运行 `npm audit --omit=dev`。当前接入接口还覆盖内部认证、请求追踪、用户隔离、异步状态恢复和配置缺失等情况。
